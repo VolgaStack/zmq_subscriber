@@ -4,12 +4,11 @@
 import os
 import logging
 from daemon import runner
-from subscribe import Subscriber as sub
+from subscribe import Subscriber
 
 
-working_directory = os.path.join(os.path.expanduser('~'), 'subscribe_daemon/')
-log = 'subscribe_daemon.log'
-pid = 'subscribe_daemon.pid'
+working_directory = os.path.dirname(os.path.realpath(__file__))
+log = 'subscribe-daemon.log'
 settings = 'settings.ini'
 
 log_file = os.path.join(working_directory, log)
@@ -32,7 +31,7 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 # creating daemon object
-daemon = sub.Subscriber(settings_file, working_directory, logger)
+daemon = Subscriber(settings_file, working_directory, logger)
 
 # starting daemon
 daemon_runner = runner.DaemonRunner(daemon)

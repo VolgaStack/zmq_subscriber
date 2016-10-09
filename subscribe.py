@@ -3,7 +3,6 @@
 
 import os
 import ConfigParser
-import zmq
 import lockfile
 import time
 from mailchimp3 import MailChimp
@@ -12,13 +11,14 @@ from mailchimp3 import MailChimp
 class Subscriber:
     def __init__(self, settings, working_directory, logger=None):
         self.stdin_path = '/dev/null'
-        self.stdout_path = '/dev/tty'
-        self.stderr_path = '/dev/tty'
-        self.pidfile_path = os.path.join(working_directory, 'subscribe_daemon.pid')
+        self.stdout_path = '/dev/console'
+        self.stderr_path = '/dev/console'
+        self.pidfile_path = os.path.join(working_directory, 'subscribe-daemon.pid')
         self.pidfile_timeout = 5
 
         self.settings = settings
         self.logger = logger
+        self.emails_file = os.path.join(working_directory, 'emails.data')
 
         lockfile.FileLock(self.pidfile_path)
 
@@ -42,40 +42,29 @@ class Subscriber:
 
         self.log("debug", "created mail chimp client")
 
-        # setting up zmq
-        port = config.get('ZEROMQ', 'port')
-
-        socket_context = zmq.Context()
-
-        self.socket = socket_context.socket(zmq.SUB)
-        self.socket.connect("tcp://localhost:{0}".format(port))
-
-        self.socket.setsockopt_string(zmq.SUBSCRIBE, 'SUB'.decode('ascii'))
-        self.socket.setsockopt(zmq.RCVTIMEO, 1000)
-
-        self.log("debug", "socket created and subscribed on port {0}".format(port))
-
     def do_main_program(self):
 
-        def hour_passed(oldepoch):
-            return time.time() - oldepoch >= 3600
+        def time_passed(oldepoch):
+            return time.time() - oldepoch >= 60
 
         start_time = time.time()
         email_set = set()
-        # TODO: механизм сохранения емейлов при выходе из функции, механизм загрузки при входе
 
         while True:
-            # receive email from a zmq socket
-            try:
-                email = self.socket.recv_string()
-                email = email.split('$')[1]
+            # receive all emails from a file and then delete it
+            with open(self.emails_file, 'r') as f:
+                emails = f.read().splitlines()
+            os.remove(self.emails_file)
+
+            # clear from garbage
+            emails = [email.strip() for email in emails if email.strip()]
+
+            # add everything to a set
+            for email in emails:
+                self.log("debug", "received email {0}".format(email))
                 email_set.add(email)
 
-                self.log("debug", "received email {0}".format(email))
-            except zmq.error.Again:
-                pass
-
-            if hour_passed(start_time):
+            if time_passed(start_time):
                 self.log("debug", "starting subscribing emails")
                 # retrieve all users in a desired list
                 # check if we already have a user with email we trying to add
@@ -85,7 +74,6 @@ class Subscriber:
                         email_set.remove(member['email_address'])
 
                 # if we wasn't able to find email then add it to a list
-                # TODO: fix fname, lname
                 for email in email_set:
                     self.client.member.create(self.list_id, {
                         'email_address': email,
@@ -105,5 +93,5 @@ class Subscriber:
         if self.logger is not None:
             if level == "debug":
                 self.logger.debug(message)
-            elif level == "info":
+            else:
                 self.logger.info(message)
